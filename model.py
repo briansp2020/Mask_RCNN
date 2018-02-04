@@ -27,6 +27,7 @@ import keras.layers as KL
 import keras.initializers as KI
 import keras.engine as KE
 import keras.models as KM
+import clr_callback
 
 import utils
 
@@ -1197,9 +1198,38 @@ def load_image_gt(dataset, config, image_id, augment=False,
 
     # Random horizontal flips.
     if augment:
-        if random.randint(0, 1):
+        choice = random.randint(0, 7)
+        if choice == 1:
             image = np.fliplr(image)
             mask = np.fliplr(mask)
+        elif choice == 2:
+            image = np.flipud(image)
+            mask = np.flipud(mask)
+        elif choice == 3:
+            image = np.fliplr(image)
+            mask = np.fliplr(mask)
+            image = np.flipud(image)
+            mask = np.flipud(mask)
+        elif choice == 4:
+            image = np.rot90(image)
+            mask = np.rot90(mask)
+        elif choice == 5:
+            image = np.fliplr(image)
+            mask = np.fliplr(mask)
+            image = np.rot90(image)
+            mask = np.rot90(mask)
+        elif choice == 6:
+            image = np.flipud(image)
+            mask = np.flipud(mask)
+            image = np.rot90(image)
+            mask = np.rot90(mask)
+        elif choice == 7:
+            image = np.fliplr(image)
+            mask = np.fliplr(mask)
+            image = np.flipud(image)
+            mask = np.flipud(mask)
+            image = np.rot90(image)
+            mask = np.rot90(mask)
 
     # Note that some boxes might be all zeros if the corresponding mask got cropped out.
     # and here is to filter them out
@@ -2212,6 +2242,8 @@ class MaskRCNN():
                                         histogram_freq=0, write_graph=True, write_images=False),
             keras.callbacks.ModelCheckpoint(self.checkpoint_path,
                                             verbose=0, save_weights_only=True),
+            clr_callback.CyclicLR(base_lr=learning_rate, max_lr=5*learning_rate,
+                                  step_size=self.config.STEPS_PER_EPOCH//4, mode='triangular')
         ]
 
         # Train
