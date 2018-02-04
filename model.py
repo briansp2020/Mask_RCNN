@@ -31,7 +31,6 @@ import keras.models as KM
 
 from keras.utils import Sequence
 from multiprocessing import cpu_count
-
 import clr_callback
 import utils
 
@@ -1251,12 +1250,11 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
         if np.random.random() < 0.5:
             image = np.fliplr(image)
             mask = np.fliplr(mask)
-        if np.random.random() < 0.5:
             image = np.flipud(image)
             mask = np.flipud(mask)
-        if np.random.random() < 0.5:
             image = np.rot90(image)
             mask = np.rot90(mask)
+
 
     # Augmentation
     # This requires the imgaug lib (https://github.com/aleju/imgaug)
