@@ -4,3 +4,4 @@ mask_rcnn_coco.h5
 *.csv
 logs/
 input
+sample_input
