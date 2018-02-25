@@ -72,17 +72,13 @@ def apply_mask(image, mask, color, alpha=0.5):
                                   image[:, :, c])
     return image
 
-
-def display_instances(image, boxes, masks, class_ids, class_names,
-                      scores=None, title="",
-                      figsize=(16, 16), ax=None):
+def get_masked_img (image, boxes, masks, class_ids, class_names, ax, scores = None):
     """
     boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
     masks: [height, width, num_instances]
     class_ids: [num_instances]
     class_names: list of class names of the dataset
     scores: (optional) confidence scores for each box
-    figsize: (optional) the size of the image.
     """
     # Number of instances
     N = boxes.shape[0]
@@ -91,18 +87,8 @@ def display_instances(image, boxes, masks, class_ids, class_names,
     else:
         assert boxes.shape[0] == masks.shape[-1] == class_ids.shape[0]
 
-    if not ax:
-        _, ax = plt.subplots(1, figsize=figsize)
-
     # Generate random colors
     colors = random_colors(N)
-
-    # Show area outside image boundaries.
-    height, width = image.shape[:2]
-    ax.set_ylim(height + 10, -10)
-    ax.set_xlim(-10, width + 10)
-    ax.axis('off')
-    ax.set_title(title)
 
     masked_image = image.astype(np.uint32).copy()
     for i in range(N):
@@ -142,6 +128,58 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             verts = np.fliplr(verts) - 1
             p = Polygon(verts, facecolor="none", edgecolor=color)
             ax.add_patch(p)
+    return masked_image
+
+def display_truth_and_prediction(image, gt_boxes, gt_masks, gt_class_ids,
+                                 pd_boxes, pd_masks, pd_class_ids, class_names,
+                                 scores=None, title="",
+                                 figsize=(15, 15), ax=None):
+    """
+    gt_boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
+    gt_masks: [height, width, num_instances]
+    gt_class_ids: [num_instances]
+    pd_boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
+    gt_masks: [height, width, num_instances]
+    gt_class_ids: [num_instances]
+    class_names: list of class names of the dataset
+    scores: (optional) confidence scores for each box
+    figsize: (optional) the size of the image.
+    """
+    plt.figure(figsize=figsize)
+    ax = plt.subplot(1, 2, 1)
+    plt.title('Ground Truth (%d)'%(gt_boxes.shape[0]), fontsize=9)
+    plt.axis('off')
+    gt_masked_image = get_masked_img(image.astype(np.uint32).copy(), gt_boxes, gt_masks, gt_class_ids, class_names, ax)
+    plt.imshow(gt_masked_image.astype(np.uint8))
+    ax = plt.subplot(1, 2, 2)
+    plt.title('Prediction (%d)'%(pd_boxes.shape[0]), fontsize=9)
+    plt.axis('off')
+    gt_masked_image = get_masked_img(image.astype(np.uint32).copy(), pd_boxes, pd_masks, pd_class_ids, class_names, ax, scores)
+    plt.imshow(gt_masked_image.astype(np.uint8))
+    plt.show()
+
+def display_instances(image, boxes, masks, class_ids, class_names,
+                      scores=None, title="",
+                      figsize=(16, 16), ax=None):
+    """
+    boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
+    masks: [height, width, num_instances]
+    class_ids: [num_instances]
+    class_names: list of class names of the dataset
+    scores: (optional) confidence scores for each box
+    figsize: (optional) the size of the image.
+    """
+    if not ax:
+        _, ax = plt.subplots(1, figsize=figsize)
+
+    # Show area outside image boundaries.
+    height, width = image.shape[:2]
+    ax.set_ylim(height + 10, -10)
+    ax.set_xlim(-10, width + 10)
+    ax.axis('off')
+    ax.set_title(title)
+
+    masked_image = get_masked_img(image.astype(np.uint32).copy(), boxes, masks, class_ids, class_names, ax)
     ax.imshow(masked_image.astype(np.uint8))
     plt.show()
     
