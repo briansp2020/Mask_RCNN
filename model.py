@@ -27,8 +27,9 @@ import keras.layers as KL
 import keras.initializers as KI
 import keras.engine as KE
 import keras.models as KM
-import clr_callback
+from multiprocessing import cpu_count
 
+import clr_callback
 import utils
 
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
@@ -1198,36 +1199,13 @@ def load_image_gt(dataset, config, image_id, augment=False,
 
     # Random horizontal flips.
     if augment:
-        choice = random.randint(0, 7)
-        if choice == 1:
+        if np.random.random() < 0.5:
             image = np.fliplr(image)
             mask = np.fliplr(mask)
-        elif choice == 2:
+        if np.random.random() < 0.5:
             image = np.flipud(image)
             mask = np.flipud(mask)
-        elif choice == 3:
-            image = np.fliplr(image)
-            mask = np.fliplr(mask)
-            image = np.flipud(image)
-            mask = np.flipud(mask)
-        elif choice == 4:
-            image = np.rot90(image)
-            mask = np.rot90(mask)
-        elif choice == 5:
-            image = np.fliplr(image)
-            mask = np.fliplr(mask)
-            image = np.rot90(image)
-            mask = np.rot90(mask)
-        elif choice == 6:
-            image = np.flipud(image)
-            mask = np.flipud(mask)
-            image = np.rot90(image)
-            mask = np.rot90(mask)
-        elif choice == 7:
-            image = np.fliplr(image)
-            mask = np.fliplr(mask)
-            image = np.flipud(image)
-            mask = np.flipud(mask)
+        if np.random.random() < 0.5:
             image = np.rot90(image)
             mask = np.rot90(mask)
 
@@ -1517,8 +1495,8 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
         rpn_bbox[ix] = [
             (gt_center_y - a_center_y) / a_h,
             (gt_center_x - a_center_x) / a_w,
-            np.log(gt_h / a_h),
-            np.log(gt_w / a_w),
+            np.log(np.clip(gt_h / a_h, K.epsilon(), None)),
+            np.log(np.clip(gt_w / a_w, K.epsilon(), None)),
         ]
         # Normalize
         rpn_bbox[ix] /= config.RPN_BBOX_STD_DEV
@@ -2092,6 +2070,8 @@ class MaskRCNN():
         # Optimizer object
         optimizer = keras.optimizers.SGD(lr=learning_rate, momentum=momentum,
                                          clipnorm=self.config.GRADIENT_CLIP_NORM)
+        #optimizer = keras.optimizers.Adam(lr=learning_rate, amsgrad=True,
+        #                                  clipnorm=5.0)
         # Add Losses
         # First, clear previously set losses to avoid duplication
         self.keras_model._losses = []
@@ -2197,7 +2177,7 @@ class MaskRCNN():
             "*epoch*", "{epoch:04d}")
 
     def train(self, train_dataset, val_dataset, learning_rate, epochs, layers,
-              workers = 4, verbose=1):
+              workers = max(4, cpu_count()//2), verbose=1):
         """Train the model.
         train_dataset, val_dataset: Training and validation Dataset objects.
         learning_rate: The learning rate to train with
