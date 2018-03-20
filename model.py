@@ -27,8 +27,9 @@ import keras.layers as KL
 import keras.initializers as KI
 import keras.engine as KE
 import keras.models as KM
-import clr_callback
+from multiprocessing import cpu_count
 
+import clr_callback
 import utils
 
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
@@ -1200,38 +1201,20 @@ def load_image_gt(dataset, config, image_id, augment=False,
 
     # Random horizontal flips.
     if augment:
-        choice = random.randint(0, 7)
-        if choice == 1:
+        if np.random.random() < 0.5:
             image = np.fliplr(image)
             mask = np.fliplr(mask)
-        elif choice == 2:
+        if np.random.random() < 0.5:
             image = np.flipud(image)
             mask = np.flipud(mask)
-        elif choice == 3:
-            image = np.fliplr(image)
-            mask = np.fliplr(mask)
-            image = np.flipud(image)
-            mask = np.flipud(mask)
-        elif choice == 4:
+        if np.random.random() < 0.5:
             image = np.rot90(image)
             mask = np.rot90(mask)
-        elif choice == 5:
-            image = np.fliplr(image)
-            mask = np.fliplr(mask)
-            image = np.rot90(image)
-            mask = np.rot90(mask)
-        elif choice == 6:
-            image = np.flipud(image)
-            mask = np.flipud(mask)
-            image = np.rot90(image)
-            mask = np.rot90(mask)
-        elif choice == 7:
-            image = np.fliplr(image)
-            mask = np.fliplr(mask)
-            image = np.flipud(image)
-            mask = np.flipud(mask)
-            image = np.rot90(image)
-            mask = np.rot90(mask)
+
+    # Note that some boxes might be all zeros if the corresponding mask got cropped out.
+    # and here is to filter them out
+    _idx = np.sum(mask, axis=(0, 1)) > 0
+    mask = mask[:, :, _idx]
 
     # Bounding boxes. Note that some boxes might be all zeros
     # if the corresponding mask got cropped out.
@@ -1514,8 +1497,8 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
         rpn_bbox[ix] = [
             (gt_center_y - a_center_y) / a_h,
             (gt_center_x - a_center_x) / a_w,
-            np.log(gt_h / a_h),
-            np.log(gt_w / a_w),
+            np.log(np.clip(gt_h / a_h, K.epsilon(), None)),
+            np.log(np.clip(gt_w / a_w, K.epsilon(), None)),
         ]
         # Normalize
         rpn_bbox[ix] /= config.RPN_BBOX_STD_DEV
@@ -1847,6 +1830,7 @@ class MaskRCNN():
         # Returns a list of the last layers of each stage, 5 in total.
         # Don't create the thead (stage 5), so we pick the 4th item in the list.
         _, C2, C3, C4, C5 = resnet_graph(input_image, "resnet101", stage5=True)
+        #_, C2, C3, C4, C5 = resnet_graph(input_image, "resnet50", stage5=True)
         # Top-down Layers
         # TODO: add assert to varify feature map sizes match what's in config
         P5 = KL.Conv2D(256, (1, 1), name='fpn_c5p5')(C5)
@@ -2089,6 +2073,8 @@ class MaskRCNN():
         # Optimizer object
         optimizer = keras.optimizers.SGD(lr=learning_rate, momentum=momentum,
                                          clipnorm=5.0)
+        #optimizer = keras.optimizers.Adam(lr=learning_rate, amsgrad=True,
+        #                                  clipnorm=5.0)
         # Add Losses
         # First, clear previously set losses to avoid duplication
         self.keras_model._losses = []
@@ -2194,7 +2180,7 @@ class MaskRCNN():
             "*epoch*", "{epoch:04d}")
 
     def train(self, train_dataset, val_dataset, learning_rate, epochs, layers,
-              workers = 4, verbose=1):
+              workers = max(4, cpu_count()//2), verbose=1):
         """Train the model.
         train_dataset, val_dataset: Training and validation Dataset objects.
         learning_rate: The learning rate to train with
