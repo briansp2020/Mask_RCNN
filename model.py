@@ -1015,14 +1015,16 @@ def build_fpn_mask_graph(rois, feature_maps, image_shape,
                            name='mrcnn_mask_bn4')(x, training=train_bn)
     x = KL.Activation('relu')(x)
 
-    #x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+    x = KL.TimeDistributed(KL.Conv2DTranspose(256, (2, 2), strides=2, activation="relu"),
+                           name="mrcnn_mask_deconv")(x)
+    #x = KL.TimeDistributed(KL.Conv2DTranspose(256, (4, 4), strides=2, activation="relu"),
     #                       name="mrcnn_mask_deconv")(x)
-    x = KL.TimeDistributed(KL.UpSampling2D(size=(2, 2)))(x)
-    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
-                           name="mrcnn_mask_conv5")(x)
-    x = KL.TimeDistributed(BatchNorm(axis=3),
-                           name='mrcnn_mask_bn5')(x)
-    x = KL.Activation('relu')(x)
+    #x = KL.TimeDistributed(KL.UpSampling2D(size=(2, 2)))(x)
+    #x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
+    #                       name="mrcnn_mask_conv5")(x)
+    #x = KL.TimeDistributed(BatchNorm(axis=3),
+    #                       name='mrcnn_mask_bn5')(x)
+    #x = KL.Activation('relu')(x)
     x = KL.TimeDistributed(KL.Conv2D(num_classes, (1, 1), strides=1, activation="sigmoid"),
                            name="mrcnn_mask")(x)
     return x
