@@ -25,6 +25,7 @@ import keras.engine as KE
 import keras.models as KM
 
 from mrcnn import utils
+from mrcnn import clr_callback
 
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
 from distutils.version import LooseVersion
@@ -2231,7 +2232,7 @@ class MaskRCNN():
             "*epoch*", "{epoch:04d}")
 
     def train(self, train_dataset, val_dataset, learning_rate, epochs, layers,
-              augmentation=None):
+              augmentation=None, verbose=1):
         """Train the model.
         train_dataset, val_dataset: Training and validation Dataset objects.
         learning_rate: The learning rate to train with
@@ -2288,6 +2289,8 @@ class MaskRCNN():
                                         histogram_freq=0, write_graph=True, write_images=False),
             keras.callbacks.ModelCheckpoint(self.checkpoint_path,
                                             verbose=0, save_weights_only=True),
+            clr_callback.CyclicLR(base_lr=learning_rate, max_lr=5*learning_rate,
+                                  step_size=self.config.STEPS_PER_EPOCH//4, mode='triangular')
         ]
 
         # Train
@@ -2308,6 +2311,7 @@ class MaskRCNN():
             train_generator,
             initial_epoch=self.epoch,
             epochs=epochs,
+            verbose=verbose,
             steps_per_epoch=self.config.STEPS_PER_EPOCH,
             callbacks=callbacks,
             validation_data=val_generator,
