@@ -259,7 +259,7 @@ class InferenceConfig(NucleiConfig):
     IMAGE_MIN_DIM = 512
     IMAGE_MAX_DIM = 512
     DETECTION_MAX_INSTANCES = 300
-    DETECTION_MIN_CONFIDENCE = 0.85
+    DETECTION_MIN_CONFIDENCE = 0.90
 
 # generate run length encoding of test data
 def rle_encoding(x):
@@ -299,7 +299,7 @@ def create_prediction(FLAGS):
     # '/root/briansp/git/Mask_RCNN/logs/nuclei20180322T2343/mask_rcnn_nuclei_0014.h5' # LB .492
 
     # Load trained weights (fill in path to trained weights here)
-
+    '''
     print("Averaging 5 weights around ", FLAGS.saved_model)
     weights = list()
     for i in range(-2, 3):
@@ -314,17 +314,20 @@ def create_prediction(FLAGS):
             [np.array(weights_).mean(axis=0)\
                 for weights_ in zip(*weights_list_tuple)])
     model.keras_model.set_weights(new_weights)
-    
+    '''
+    model.load_weights(FLAGS.saved_model, by_name=True)
+
     new_test_ids = []
     rles = []
     max_masks = 0
     for image_id in dataset_test.image_ids:
+        #print('Prediciting image id ', image_id)
         # Load image and ground truth data
         image_info = dataset_test.image_info[image_id]
         #print (image_info['path'])
         image = dataset_test.load_test_image(image_id)
         # Run object detection
-        results = model.detect([image], verbose=0)
+        results = model.detect([image], tta = False, verbose=0)
         r = results[0]
     
         # sort mask from small to large
@@ -377,8 +380,9 @@ if __name__ == '__main__':
     parser.add_argument(
         '--sub_filename',
         type=str,
-        default='sub-swa-1.csv',
+        default='sub-mask-rcnn-9-73-e14-90-notta.csv',
         help='Name of the submission file to create.')
+
     FLAGS, unparsed = parser.parse_known_args()
     create_prediction(FLAGS)
 

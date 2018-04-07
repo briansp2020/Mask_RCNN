@@ -2425,7 +2425,7 @@ class MaskRCNN():
         )
         self.epoch = max(self.epoch, epochs)
 
-    def mold_inputs(self, images):
+    def mold_inputs(self, images, fliplr = False):
         """Takes a list of images and modifies them to the format expected
         as an input to the neural network.
         images: List of image matricies [height,width,depth]. Images can have
@@ -2443,6 +2443,8 @@ class MaskRCNN():
         for image in images:
             # Resize image to fit the model expected size
             # TODO: move resizing to mold_image()
+            if fliplr:
+                image = np.fliplr(image)
             molded_image, window, scale, padding = utils.resize_image(
                 image,
                 min_dim=self.config.IMAGE_MIN_DIM,
@@ -2524,7 +2526,7 @@ class MaskRCNN():
 
         return boxes, class_ids, scores, full_masks
 
-    def detect(self, images, verbose=0):
+    def detect(self, images, tta=False, verbose=0):
         """Runs the detection pipeline.
 
         images: List of images, potentially of different sizes.
@@ -2536,13 +2538,15 @@ class MaskRCNN():
         masks: [H, W, N] instance binary masks
         """
         assert self.mode == "inference", "Create model in inference mode."
-        assert len(
-            images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
+        assert len(images) == 1 # my tta implmentation assumes 1 image
+        assert len(images) == self.config.BATCH_SIZE, \
+            "len(images) must be equal to BATCH_SIZE"
 
         if verbose:
             log("Processing {} images".format(len(images)))
             for image in images:
                 log("image", image)
+
         # Mold inputs to format expected by the neural network
         molded_images, image_metas, windows = self.mold_inputs(images)
         if verbose:
@@ -2552,6 +2556,100 @@ class MaskRCNN():
         detections, mrcnn_class, mrcnn_bbox, mrcnn_mask, \
             rois, rpn_class, rpn_bbox =\
             self.keras_model.predict([molded_images, image_metas], verbose=0)
+
+        if tta:
+            # Fliplr image and do it again
+            molded_images_lr, image_metas_lr, windows_lr = self.mold_inputs(images, fliplr = True)
+            if verbose:
+                log("fliplr molded_images", molded_images_lr)
+                log("fliplr image_metas", image_metas_lr)
+            # Run object detection
+            detections_lr, mrcnn_class_lr, mrcnn_bbox_lr, mrcnn_mask_lr, \
+                rois_lr, rpn_class_lr, rpn_bbox_lr =\
+                self.keras_model.predict([molded_images_lr, image_metas_lr], verbose=0)
+
+            for i in range(self.config.DETECTION_MAX_INSTANCES):
+                x1 = molded_images_lr[0].shape[1] - 1 - detections_lr[0,i,1]
+                x2 = molded_images_lr[0].shape[1] - detections_lr[0,i,3]
+                detections_lr[0,i,1] = x2
+                detections_lr[0,i,3] = x1
+                mrcnn_mask_lr[0,i,:,:,:] = np.fliplr(mrcnn_mask_lr[0,i])
+
+            def stack_nms(detections1, masks1, detections2, masks2, overlapThresh = .5):
+                # detections [N, (y1, x1, y2, x2, class_id, score)]
+                detections = np.concatenate([detections1, detections2], axis=0)
+                masks = np.concatenate([masks1, masks2], axis=0)
+                scores = np.squeeze(detections[:,5])
+
+                # initialize the list of picked indexes	
+                pick = []
+ 
+                # grab the coordinates of the bounding boxes
+                x1 = detections[:,1]
+                y1 = detections[:,0]
+                x2 = detections[:,3]
+                y2 = detections[:,2]
+ 
+                # compute the area of the bounding boxes and sort the bounding
+                # boxes by the score
+                area = (x2 - x1 + 1) * (y2 - y1 + 1)
+                idxs = np.argsort(scores)
+                idxs = np.delete(idxs, np.where(area[idxs] < 1.5)[0])
+                '''
+                print ('scores : ', scores[idxs][:8])
+                print ('scores : ', scores[idxs][-44:])
+                print ('area   : ', area[idxs][:8])
+                print ('area   : ', area[idxs][-44:])
+                print ('detections : ', detections[idxs][:8])
+                print ('detections : ', detections[idxs][-44:])
+                print ('idxs : ', idxs[-44:])
+                '''
+
+                # keep looping while some indexes still remain in the indexes list
+                while len(idxs) > 0:
+                    # grab the last index in the indexes list and add the
+                    # index value to the list of picked indexes
+                    last = len(idxs) - 1
+                    i = idxs[last]
+                    pick.append(i)
+ 
+                    # find the largest (x, y) coordinates for the start of
+                    # the bounding box and the smallest (x, y) coordinates
+                    # for the end of the bounding box
+                    xx1 = np.maximum(x1[i], x1[idxs[:last]])
+                    yy1 = np.maximum(y1[i], y1[idxs[:last]])
+                    xx2 = np.minimum(x2[i], x2[idxs[:last]])
+                    yy2 = np.minimum(y2[i], y2[idxs[:last]])
+ 
+                    # compute the width and height of the bounding box
+                    w = np.maximum(0, xx2 - xx1 + 1)
+                    h = np.maximum(0, yy2 - yy1 + 1)
+ 
+                    # compute the ratio of overlap
+                    overlap = (w * h) / area[idxs[:last]]
+ 
+                    # delete all indexes from the index list that have
+                    idxs = np.delete(idxs, np.concatenate(([last],
+                        np.where(overlap > overlapThresh)[0])))
+                    #print ('len (idxs) : ', len(idxs))
+                    #print ('%d idxs : ' % i, idxs[-10:])
+
+                #print ('count : ', len(pick))
+                #print ('pick : ', pick)
+                return detections[pick], masks[pick]
+
+            detections, mrcnn_mask = stack_nms(detections[0], mrcnn_mask[0], detections_lr[0], mrcnn_mask_lr[0], self.config.RPN_NMS_THRESHOLD)
+
+            detections = np.expand_dims(detections, axis=0)
+            mrcnn_mask = np.expand_dims(mrcnn_mask, axis=0)
+            #detections = self.stack_interleave(detections, detections_lr)
+            #mrcnn_mask = self.stack_interleave(mrcnn_mask, mrcnn_mask_lr)
+            #mrcnn_class = self.stack_interleave(mrcnn_class, mrcnn_class_lr)
+            #mrcnn_bbox = mrcnn_bbox_lr #np.concatenate([mrcnn_bbox, mrcnn_bbox_lr], axis=1)
+            #rois = rois_lr #np.concatenate([rois, rois_lr], axis=1)
+            #rpn_class = rpn_class_lr #np.concatenate([rpn_class, rpn_class_lr], axis=1)
+            #rpn_bbox = rpn_bbox_lr #np.concatenate([rpn_bbox, rpn_bbox_lr], axis=1)
+
         # Process detections
         results = []
         for i, image in enumerate(images):
