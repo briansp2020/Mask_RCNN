@@ -25,6 +25,7 @@ import keras.engine as KE
 import keras.models as KM
 
 from keras.utils import Sequence
+#from keras_contrib.layers import normalization
 from mrcnn import utils
 from mrcnn import clr_callback
 
@@ -52,6 +53,7 @@ def log(text, array=None):
     print(text)
 
 
+#class BatchNorm(normalization.InstanceNormalization):
 class BatchNorm(KL.BatchNormalization):
     """Extends the Keras BatchNormalization class to allow a central place
     to make changes if needed.
@@ -2210,6 +2212,8 @@ class MaskRCNN():
         # Exclude some layers
         if exclude:
             layers = filter(lambda l: l.name not in exclude, layers)
+            # Exclude batchnorm layers since using InstanceNormalization
+            #layers = filter(lambda l: bool(re.fullmatch(r"(bn_*)", l.name)), layers)
 
         if by_name:
             topology.load_weights_from_hdf5_group_by_name(f, layers)
@@ -2414,6 +2418,7 @@ class MaskRCNN():
             keras.callbacks.ModelCheckpoint(self.checkpoint_path,
                                             verbose=0, save_weights_only=True),
             clr_callback.CyclicLR(base_lr=learning_rate, max_lr=5*learning_rate,
+                                  use_momentum = False, #base_momentum=self.config.LEARNING_MOMENTUM, max_momentum=self.config.LEARNING_MOMENTUM+.05,
                                   step_size=self.config.STEPS_PER_EPOCH//4, mode='triangular')
         ]
 

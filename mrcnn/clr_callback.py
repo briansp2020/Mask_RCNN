@@ -59,12 +59,16 @@ class CyclicLR(Callback):
             iterations since start of cycle). Default is 'cycle'.
     """
 
-    def __init__(self, base_lr=0.001, max_lr=0.006, step_size=2000., mode='triangular',
-                 gamma=1., scale_fn=None, scale_mode='cycle'):
+    def __init__(self, base_lr=0.001, max_lr=0.006, mode='triangular',
+                 use_momentum = False, base_momentum=0.9, max_momentum=0.95,
+                 step_size=2000., gamma=1., scale_fn=None, scale_mode='cycle'):
         super(CyclicLR, self).__init__()
 
         self.base_lr = base_lr
         self.max_lr = max_lr
+        self.use_momentum = use_momentum
+        self.base_momentum = base_momentum
+        self.max_momentum = max_momentum
         self.step_size = step_size
         self.mode = mode
         self.gamma = gamma
@@ -103,32 +107,52 @@ class CyclicLR(Callback):
     def clr(self):
         cycle = np.floor(1+self.clr_iterations/(2*self.step_size))
         x = np.abs(self.clr_iterations/self.step_size - 2*cycle + 1)
+        momentum = self.use_momentum
         if self.scale_mode == 'cycle':
-            return self.base_lr + (self.max_lr-self.base_lr)*np.maximum(0, (1-x))*self.scale_fn(cycle)
+            lr = self.base_lr + (self.max_lr-self.base_lr)*np.maximum(0, (1-x))*self.scale_fn(cycle)
+            if self.use_momentum:
+                momentum = self.max_momentum + (self.base_momentum - self.max_momentum)*np.maximum(0, (1-x))*self.scale_fn(cycle)
         else:
-            return self.base_lr + (self.max_lr-self.base_lr)*np.maximum(0, (1-x))*self.scale_fn(self.clr_iterations)
+            lr = self.base_lr + (self.max_lr-self.base_lr)*np.maximum(0, (1-x))*self.scale_fn(self.clr_iterations)
+            if self.use_momentum:
+                momentum = self.max_momentum + (self.base_momentum - self.max_momentum)*np.maximum(0, (1-x))*self.scale_fn(self.clr_iterations)
+        return lr, momentum
         
     def on_train_begin(self, logs={}):
         logs = logs or {}
 
         if self.clr_iterations == 0:
             K.set_value(self.model.optimizer.lr, self.base_lr)
+            if self.use_momentum:
+                K.set_value(self.model.optimizer.lr, self.base_momentum)
         else:
-            K.set_value(self.model.optimizer.lr, self.clr())        
-            
-    def on_batch_end(self, epoch, logs=None):
+            lr, momentum = self.clr()
+            K.set_value(self.model.optimizer.lr, lr)
+            if self.use_momentum:
+                K.set_value(self.model.optimizer.lr, momentum)
         
+    def on_batch_end(self, epoch, logs=None):
         logs = logs or {}
         self.trn_iterations += 1
         self.clr_iterations += 1
-        K.set_value(self.model.optimizer.lr, self.clr())
+        lr, momentum = self.clr()
+        #print ('lr, momentum : ', lr, momentum)
+        K.set_value(self.model.optimizer.lr, lr)
+        if self.use_momentum:
+            K.set_value(self.model.optimizer.momentum, momentum)
 
         self.history.setdefault('lr', []).append(K.get_value(self.model.optimizer.lr))
         self.history.setdefault('iterations', []).append(self.trn_iterations)
 
         for k, v in logs.items():
             self.history.setdefault(k, []).append(v)
-            
-            
 
-  
+    def on_epoch_end(self, epoch, logs=None):
+        """Called at the end of an epoch.
+        # Arguments
+            epoch: integer, index of epoch.
+            logs: dictionary of logs.
+        """
+        print ('Epoch %d ended.' % epoch)
+
+
