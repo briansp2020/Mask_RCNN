@@ -196,12 +196,13 @@ def resnet_graph(input_image, architecture, stage5=False, train_bn=True):
     block_count = {"resnet50": 5, "resnet101": 22}[architecture]
     for i in range(block_count):
         x = identity_block(x, 3, [256, 256, 1024], stage=4, block=chr(98 + i), train_bn=train_bn)
-    C4 = x
+    C4 = x = KL.Dropout(.5)(x)
     # Stage 5
     if stage5:
         x = conv_block(x, 3, [512, 512, 2048], stage=5, block='a', train_bn=train_bn)
         x = identity_block(x, 3, [512, 512, 2048], stage=5, block='b', train_bn=train_bn)
-        C5 = x = identity_block(x, 3, [512, 512, 2048], stage=5, block='c', train_bn=train_bn)
+        x = identity_block(x, 3, [512, 512, 2048], stage=5, block='c', train_bn=train_bn)
+        C5 = KL.Dropout(.5)(x)
     else:
         C5 = None
     return [C1, C2, C3, C4, C5]
@@ -1221,10 +1222,16 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
     # Random horizontal flips.
     # TODO: will be removed in a future update in favor of augmentation
     if augment:
-        logging.warning("'augment' is depricated. Use 'augmentation' instead.")
+        #logging.warning("'augment' is depricated. Use 'augmentation' instead.")
         if random.randint(0, 1):
             image = np.fliplr(image)
             mask = np.fliplr(mask)
+        if random.randint(0, 1):
+            image = np.flipud(image)
+            mask = np.flipud(mask)
+        if random.randint(0, 1):
+            image = np.rot90(image)
+            mask = np.rot90(mask)
 
     # Augmentation
     # This requires the imgaug lib (https://github.com/aleju/imgaug)
@@ -2297,9 +2304,10 @@ class MaskRCNN():
         for layer in layers:
             # Is the layer a model?
             if layer.__class__.__name__ == 'Model':
-                print("In model: ", layer.name)
+                if verbose > 0:
+                    print("In model: ", layer.name)
                 self.set_trainable(
-                    layer_regex, keras_model=layer, indent=indent + 4)
+                    layer_regex, keras_model=layer, indent=indent + 4, verbose = verbose)
                 continue
 
             if not layer.weights:
@@ -2401,7 +2409,7 @@ class MaskRCNN():
 
         # Data generators
         train_generator = data_generator(train_dataset, self.config, shuffle=True,
-                                         augmentation=augmentation,
+                                         augment = True, augmentation=augmentation,
                                          batch_size=self.config.BATCH_SIZE)
         #train_generator = DataSequence(train_dataset, self.config,
         #                               batch_size=self.config.BATCH_SIZE)
@@ -2425,7 +2433,7 @@ class MaskRCNN():
         # Train
         log("\nStarting at epoch {}. LR={}\n".format(self.epoch, learning_rate))
         log("Checkpoint Path: {}".format(self.checkpoint_path))
-        self.set_trainable(layers)
+        self.set_trainable(layers, verbose = 0)
         self.compile(learning_rate, self.config.LEARNING_MOMENTUM)
 
         # Work-around for Windows: Keras fails on Windows when using
