@@ -1,3 +1,4 @@
+import datetime
 from keras.callbacks import *
 
 class CyclicLR(Callback):
@@ -153,6 +154,6 @@ class CyclicLR(Callback):
             epoch: integer, index of epoch.
             logs: dictionary of logs.
         """
-        print ('Epoch %d ended.' % epoch)
+        print ('Epoch %d ended at %s.' % (epoch, datetime.datetime.now()))
 
 
