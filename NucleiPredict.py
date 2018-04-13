@@ -280,10 +280,22 @@ def get_adjcent_model_name(model_name, increment):
     return model_name[:-7] + '%04d'%(int(model_name[-7:-3])+increment) + model_name[-3:]
 
 def create_prediction(FLAGS):
-    test_ids = next(os.walk(FLAGS.test_dir))[1]
     inference_config = InferenceConfig()
 
+    # Validation dataset
+    valid_df = pd.read_csv(DATA_PATH + 'stage1_val_data.csv')
+    valid_ids = []
+    for i, row in valid_df.iterrows():
+        valid_ids.extend([row['ImageId']])
+    print ("Number of validation images : ", len(valid_df))
+
+    dataset_val = NucleiDataset(augment = False)
+    dataset_val.load_nuclei(valid_ids, config.IMAGE_SHAPE, config.MEAN_PIXEL)
+    dataset_val.prepare()
+
     # Test dataset
+    test_ids = next(os.walk(FLAGS.test_dir))[1]
+
     dataset_test = NucleiDataset(augment = False)
     dataset_test.load_nuclei(test_ids, config.IMAGE_SHAPE, config.MEAN_PIXEL, FLAGS.test_dir)
     dataset_test.prepare()
@@ -299,23 +311,43 @@ def create_prediction(FLAGS):
     # '/root/briansp/git/Mask_RCNN/logs/nuclei20180322T2343/mask_rcnn_nuclei_0014.h5' # LB .492
 
     # Load trained weights (fill in path to trained weights here)
-    '''
-    print("Averaging 5 weights around ", FLAGS.saved_model)
-    weights = list()
-    for i in range(-2, 3):
-        model_name = get_adjcent_model_name(FLAGS.saved_model, i)
-        print ('Processing ', model_name)
-        model.load_weights(model_name, by_name=True)
-        weights.append(model.keras_model.get_weights())
+    if FLAGS.use_swa:
+        print("Averaging 3 weights around ", FLAGS.saved_model)
+        weights = list()
+        for i in range(-1, 2):
+            model_name = get_adjcent_model_name(FLAGS.saved_model, i)
+            print ('Processing ', model_name)
+            model.load_weights(model_name, by_name=True)
+            weights.append(model.keras_model.get_weights())
     
-    new_weights = list()
-    for weights_list_tuple in zip(*weights):
-        new_weights.append(
-            [np.array(weights_).mean(axis=0)\
-                for weights_ in zip(*weights_list_tuple)])
-    model.keras_model.set_weights(new_weights)
+        new_weights = list()
+        for weights_list_tuple in zip(*weights):
+            new_weights.append(
+                [np.array(weights_).mean(axis=0)\
+                    for weights_ in zip(*weights_list_tuple)])
+        model.keras_model.set_weights(new_weights)
+        if FLAGS.sub_filename[-7:] != 'swa.csv':
+            FLAGS.sub_filename = FLAGS.sub_filename[:-4] + '-swa.csv'
+    else:
+        model.load_weights(FLAGS.saved_model, by_name=True)
     '''
-    model.load_weights(FLAGS.saved_model, by_name=True)
+    APs = []
+    for image_id in dataset_val.image_ids:
+        # Load image and ground truth data
+        image, image_meta, gt_class_id, gt_bbox, gt_mask =\
+            modellib.load_image_gt(dataset_val, inference_config,
+                                   image_id, use_mini_mask=False)
+        molded_images = np.expand_dims(modellib.mold_image(image, inference_config), 0)
+        # Run object detection
+        results = model.detect([image], tta = FLAGS.use_tta, verbose=0)
+        r = results[0]
+        # Compute AP
+        AP, precisions, recalls, overlaps =\
+            utils.compute_ap(gt_bbox, gt_class_id, gt_mask,
+                             r["rois"], r["class_ids"], r["scores"], r['masks'], iou_threshold=0.75)
+        APs.append(AP)
+    print("Validation mAP: ", np.mean(APs))
+    '''
 
     new_test_ids = []
     rles = []
@@ -325,9 +357,26 @@ def create_prediction(FLAGS):
         # Load image and ground truth data
         image_info = dataset_test.image_info[image_id]
         #print (image_info['path'])
+        '''
+        if image_info['id_'] in {
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9',
+                '9aa12685592e266c3ac3a355911ab684396a2a6d55d7453a9b8c416d64c3251b',
+                '81537757f724d396ad6c803d8db775b2bd2814c711a839394e6895e5be62178d',
+                '9079897a543f209c7272e854882037747a0d49f274a6e1ece18b04d23062757d',
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9',
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9',
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9',
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9',
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9',
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9',
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9',
+                '6710d57784372fd5557e1e0910ac296b4e384ca8f5505e6165aba5bb36fdf5b9'
+            }:
+            continue
+        '''
         image = dataset_test.load_test_image(image_id)
         # Run object detection
-        results = model.detect([image], tta = False, verbose=0)
+        results = model.detect([image], tta = FLAGS.use_tta, verbose=0)
         r = results[0]
     
         # sort mask from small to large
@@ -336,6 +385,11 @@ def create_prediction(FLAGS):
         idx = [x for x,y in idx]
         max_masks = max(max_masks, len(idx))
         r['masks'] = r['masks'][:,:,idx]
+        if len(r['masks']) < 1:
+            print ('No nuclei detected for ', image_info['id_'])
+            rles.extend([[1,1]])
+            new_test_ids.extend([image_info['id_']])
+            continue
 
         #print (image_info['id_'], image.shape, r['masks'].shape, image.shape[0]*image.shape[1])
         # remove duplicate pixels
@@ -352,6 +406,18 @@ def create_prediction(FLAGS):
             rle.remove([])
         rles.extend(rle)
         new_test_ids.extend([image_info['id_']] * len(rle))
+        if FLAGS.test_output_dir:
+            if not os.path.exists(FLAGS.test_output_dir):
+                os.mkdir(FLAGS.test_output_dir)
+            image_dir = os.path.join(FLAGS.test_output_dir, 'pseudo_' + image_info['id_'], 'images')
+            masks_dir = os.path.join(FLAGS.test_output_dir, 'pseudo_' + image_info['id_'], 'masks')
+            print(image_dir)
+            os.makedirs(image_dir)
+            cv2.imwrite(os.path.join(image_dir, 'pseudo_' + image_info['id_'] + '.png'), image)
+            os.makedirs(masks_dir)
+            for i in range(r['masks'].shape[2]):
+                cv2.imwrite(os.path.join(masks_dir, 'pseudo_mask' + str(i) + '.png'), r['masks'][:,:,i].astype(np.uint8)*255)
+
 
     print ("Max_masks : ", max_masks)
 
@@ -359,6 +425,7 @@ def create_prediction(FLAGS):
     sub = pd.DataFrame()
     sub['ImageId'] = new_test_ids
     sub['EncodedPixels'] = pd.Series(rles).apply(lambda x: ' '.join(str(y) for y in x))
+    sub['EncodedPixels'] = sub['EncodedPixels'].apply(lambda x: x if x != '1 1' else '')
     sub.to_csv(FLAGS.sub_filename, index=False)
     print ('Created ', FLAGS.sub_filename)
     print ("Done predicting nuclei")
@@ -374,15 +441,32 @@ if __name__ == '__main__':
     parser.add_argument(
         '--test_dir',
         type=str,
-        default='/root/input/stage1_test',
+        default='/root/briansp/Downloads/nuclei/stage2_test_final',
+        #default='/root/input/stage1_test',
         #default='/tmp/ramdisk/stage1_test',
         help='Location of test data files.')
     parser.add_argument(
+        '--test_output_dir',
+        type=str,
+        default='',
+        #default='/root/briansp/Downloads/nuclei/extra_data',
+        help='Location to put predicted out so they can be used as pseudo labed data.')
+    parser.add_argument(
         '--sub_filename',
         type=str,
-        default='sub-mask-rcnn-9-73-e14-90-notta.csv',
+        default='stage2-1-1.csv',
         help='Name of the submission file to create.')
+    parser.add_argument(
+        '--use_swa',
+        type=bool,
+        help='Whether to use SWA or not.')
+    parser.add_argument(
+        '--use_tta',
+        type=bool,
+        help='Whether to use test time augmentation or not.')
 
     FLAGS, unparsed = parser.parse_known_args()
+    print ('FLAGS\n', FLAGS)
+
     create_prediction(FLAGS)
 
