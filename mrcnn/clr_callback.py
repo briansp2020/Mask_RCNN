@@ -156,4 +156,3 @@ class CyclicLR(Callback):
         """
         print ('Epoch %d ended at %s.' % (epoch, datetime.datetime.now()))
 
-
