@@ -1808,7 +1808,7 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
 
 
 class DataSequence(Sequence):
-    def __init__(self, dataset, config, batch_size, augment=True, random_rois=0):
+    def __init__(self, dataset, config, batch_size, augment=False, random_rois=0):
         self.dataset = dataset
         self.batch_size = batch_size
         self.config = config
@@ -1830,7 +1830,7 @@ class DataSequence(Sequence):
             # Get GT bounding boxes and masks for image.
             image_id = self.image_ids[(idx*self.batch_size + b) % len(self.image_ids)]
             image, image_meta, gt_class_ids, gt_boxes, gt_masks = \
-                load_image_gt(self.dataset, self.config, image_id, augmentation=self.augment,
+                load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
                               use_mini_mask=self.config.USE_MINI_MASK)
 
             # Skip images that have no instances. This can happen in cases
@@ -2408,16 +2408,16 @@ class MaskRCNN():
             layers = layer_regex[layers]
 
         # Data generators
-        train_generator = data_generator(train_dataset, self.config, shuffle=True,
-                                         augment = True, augmentation=augmentation,
-                                         batch_size=self.config.BATCH_SIZE)
-        #train_generator = DataSequence(train_dataset, self.config,
+        #train_generator = data_generator(train_dataset, self.config, shuffle=True,
+        #                                 augment = True, augmentation=augmentation,
+        #                                 batch_size=self.config.BATCH_SIZE)
+        train_generator = DataSequence(train_dataset, self.config,
+                                       augment=True, batch_size=self.config.BATCH_SIZE)
+        #val_generator = data_generator(val_dataset, self.config, shuffle=True,
         #                               batch_size=self.config.BATCH_SIZE)
-        val_generator = data_generator(val_dataset, self.config, shuffle=True,
-                                       batch_size=self.config.BATCH_SIZE)
-        #val_generator = DataSequence(train_dataset, self.config,
-        #                             batch_size=self.config.BATCH_SIZE,
-        #                             augment=False)
+        val_generator = DataSequence(train_dataset, self.config,
+                                     batch_size=self.config.BATCH_SIZE,
+                                     augment=False)
 
         # Callbacks
         callbacks = [

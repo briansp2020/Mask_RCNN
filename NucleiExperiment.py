@@ -498,7 +498,7 @@ for i in range(9,29,3):
     model.train(dataset_train, dataset_val, 
             learning_rate=config.LEARNING_RATE/2,
             epochs=i, verbose=2,
-            layers="all") # "5+", "4+", "3+", "2+", "all"
+            layers="2+") # "5+", "4+", "3+", "2+", "all"
 '''
 model.train(dataset_train, dataset_val, 
             learning_rate=config.LEARNING_RATE,
@@ -666,7 +666,7 @@ print ("Max_masks : ", max_masks)
 sub = pd.DataFrame()
 sub['ImageId'] = new_test_ids
 sub['EncodedPixels'] = pd.Series(rles).apply(lambda x: ' '.join(str(y) for y in x))
-submit_filename = 'sub-retry-1-8.csv'
+submit_filename = 'sub-retry-2-1.csv'
 sub.to_csv(submit_filename, index=False)
 print ('Created ', submit_filename)
 print ("Done predicting nuclei")
